@@ -17,7 +17,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-const tiktokUsername = "Eduhh_slk"; 
+const tiktokUsername = "eduhh_slk"; 
 
 function connectLive() {
     console.log(`Tentando conectar na live de @${tiktokUsername}...`);
