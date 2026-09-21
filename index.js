@@ -18,7 +18,7 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 // COLQUE SEU @ DO TIKTOK AQUI (ex: "seu_usuario")
-const tiktokUsername = "SEU_USUARIO_DO_TIKTOK"; 
+const tiktokUsername = "eduhh_slk"; 
 const tiktokLiveConnection = new WebcastPushConnection(tiktokUsername);
 
 tiktokLiveConnection.connect().then(state => {
