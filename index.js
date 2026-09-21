@@ -1,4 +1,4 @@
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const TikTokLive = require('tiktok-live-connector');
 const firebase = require('firebase/compat/app');
 require('firebase/compat/database');
 
@@ -17,9 +17,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// COLQUE SEU @ DO TIKTOK AQUI (ex: "seu_usuario")
-const tiktokUsername = "eduhh_slk"; 
-const tiktokLiveConnection = new WebcastPushConnection(tiktokUsername);
+// Seu usuário do TikTok configurado
+const tiktokUsername = "Eduhh_slk"; 
+
+const tiktokLiveConnection = new TikTokLive.WebcastPushConnection(tiktokUsername);
 
 tiktokLiveConnection.connect().then(state => {
     console.log(`Conectado com sucesso na live da sala: ${state.roomId}`);
