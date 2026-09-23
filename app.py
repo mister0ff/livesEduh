@@ -1,6 +1,6 @@
 import asyncio
 import os
-from fastapi import FastAPI, Form
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from TikTokLive import TikTokLiveClient
 from TikTokLive.events import ConnectEvent, FollowEvent, LikeEvent, GiftEvent
@@ -9,6 +9,7 @@ from firebase_admin import db
 
 app = FastAPI()
 
+# Inicializa o Firebase Admin SDK
 if not firebase_admin._apps:
     firebase_admin.initialize_app(options={
         'databaseURL': 'https://starcord-14470-default-rtdb.firebaseio.com'
@@ -33,7 +34,7 @@ async def home():
         return f.read()
 
 @app.post("/api/connect")
-async def connect_live(username: str = Form(...)):
+async def connect_live(username: str):
     global current_client, active_user, curtidas_registradas
     
     clean_username = username.replace("@", "").strip()
@@ -44,7 +45,7 @@ async def connect_live(username: str = Form(...)):
     curtidas_registradas.clear()
     active_user = clean_username
     
-    # Limpa eventos antigos no Firebase ao conectar em uma nova live
+    # Limpa eventos antigos no banco
     db.reference('eventos/').delete()
 
     current_client = TikTokLiveClient(unique_id=clean_username)
@@ -57,14 +58,22 @@ async def connect_live(username: str = Form(...)):
     async def on_follow(event: FollowEvent):
         nome, avatar = extrair_usuario(event)
         if nome:
-            db.reference('eventos/').push({'tipo': 'follow', 'nome': nome, 'avatar': avatar})
+            db.reference('eventos/').push({
+                'tipo': 'follow',
+                'nome': nome,
+                'avatar': avatar
+            })
 
     @current_client.on(LikeEvent)
     async def on_like(event: LikeEvent):
         nome, avatar = extrair_usuario(event)
         if nome and nome not in curtidas_registradas:
             curtidas_registradas.add(nome)
-            db.reference('eventos/').push({'tipo': 'like', 'nome': nome, 'avatar': avatar})
+            db.reference('eventos/').push({
+                'tipo': 'like',
+                'nome': nome,
+                'avatar': avatar
+            })
 
     @current_client.on(GiftEvent)
     async def on_gift(event: GiftEvent):
