@@ -1,5 +1,3 @@
 fastapi
 uvicorn
 TikTokLive
-firebase-admin
-python-multipart
