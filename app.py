@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from TikTokLive.client.web.web_settings import WebDefaults
 
 # 👇 CONFIGURA SUA API KEY (antes de qualquer TikTokLiveClient)
-WebDefaults.tiktok_sign_api_key = "6be8e64053613eb3178e840c53847fb33d4b29ece3ee5095448eb6e57964ab7d"
+WebDefaults.tiktok_sign_api_key = "cd948ded95a99c618e759b77b97d3f22a2deddb40d02403b95417acd6bcb099d"
 
 from TikTokLive import TikTokLiveClient
 from TikTokLive.events import (
