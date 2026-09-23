@@ -9,7 +9,6 @@ from firebase_admin import db
 
 app = FastAPI()
 
-# Inicialização do Firebase
 if not firebase_admin._apps:
     firebase_admin.initialize_app(options={
         'databaseURL': 'https://starcord-14470-default-rtdb.firebaseio.com'
@@ -45,6 +44,9 @@ async def connect_live(username: str = Form(...)):
     curtidas_registradas.clear()
     active_user = clean_username
     
+    # Limpa eventos antigos no Firebase ao conectar em uma nova live
+    db.reference('eventos/').delete()
+
     current_client = TikTokLiveClient(unique_id=clean_username)
 
     @current_client.on(ConnectEvent)
