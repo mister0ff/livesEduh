@@ -1,6 +1,7 @@
 import asyncio
+import json
 import os
-import requests
+import urllib.request
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from TikTokLive import TikTokLiveClient
@@ -11,8 +12,9 @@ app = FastAPI()
 
 # Configuração da API do EulerStream
 API_KEY = "cd948ded95a99c618e759b77b97d3f22a2deddb40d02403b95417acd6bcb099d"
-WEBHOOK_URL = "https://n8n.seusite.com/webhook/tiktok"  # Altere se necessário
+WEBHOOK_URL = "https://n8n.seusite.com/webhook/tiktok"  # Altere para a sua URL se necessário
 
+# Ajuste nos WebDefaults para garantir a conexão com o servidor de assinatura
 WebDefaults.tiktok_sign_url = "https://host.eulerstream.com/web/fetch"
 WebDefaults.tiktok_sign_api_key = API_KEY
 
@@ -27,8 +29,17 @@ event_counter = 0
 
 
 def enviar_webhook(payload: dict):
+    """Envia o evento via HTTP POST usando urllib nativo (evita falta de bibliotecas)"""
     try:
-        requests.post(WEBHOOK_URL, json=payload, timeout=5)
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            WEBHOOK_URL, 
+            data=data, 
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            pass
     except Exception as e:
         print(f"[WEBHOOK ERRO] {e}")
 
@@ -69,7 +80,7 @@ async def connect_live(username: str):
     if not clean:
         raise HTTPException(status_code=400, detail="Username inválido")
 
-    # Desconecta a live anterior se houver
+    # Desconecta cliente e task anteriores se existirem
     if current_client is not None:
         try:
             await current_client.disconnect()
@@ -88,7 +99,6 @@ async def connect_live(username: str):
     eventos_feed.clear()
     active_user = clean
 
-    # Inicializa sem o parâmetro web_kwargs que causava o erro
     client = TikTokLiveClient(unique_id=f"@{clean}")
     current_client = client
 
