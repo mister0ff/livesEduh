@@ -39,10 +39,49 @@
     .status-card {
       background: #0f172a; padding: 12px; border-radius: 10px;
       font-size: 14px; text-align: center; border: 1px solid #334155;
+      margin-bottom: 16px;
     }
     .status-online { color: #10b981; font-weight: bold; }
     .status-offline { color: #ef4444; font-weight: bold; }
+
+    /* Estilos do Feed de Eventos */
+    .feed-title { font-size: 14px; color: #94a3b8; margin-bottom: 8px; }
+    .events-feed {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      height: 250px;
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .event-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #1e293b;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .event-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #334155;
+      object-fit: cover;
+    }
+    .event-text { flex: 1; word-break: break-word; }
+    .type-like { color: #f43f5e; }
+    .type-follow { color: #3b82f6; }
+    .type-gift { color: #eab308; font-weight: bold; }
   </style>
+
+  <!-- SDK do Firebase para escutar em tempo real no navegador -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 </head>
 <body>
   <div class="card">
@@ -58,9 +97,65 @@
     <div class="status-card">
       Status: <span id="status-text" class="status-offline">Desconectado</span>
     </div>
+
+    <div class="feed-title">Atividades em tempo real:</div>
+    <div class="events-feed" id="events-feed">
+      <div style="color: #64748b; text-align: center; margin-top: 100px; font-size: 13px;">
+        Aguardando eventos da live...
+      </div>
+    </div>
   </div>
 
   <script>
+    // Inicialização do Firebase no Navegador
+    const firebaseConfig = {
+      databaseURL: "https://starcord-14470-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let eventListener = null;
+
+    function iniciarEscutaEventos() {
+      const feed = document.getElementById('events-feed');
+      feed.innerHTML = ''; // Limpa aviso inicial
+
+      // Escuta apenas os novos itens adicionados
+      const eventosRef = db.ref('eventos').limitToLast(20);
+      
+      eventosRef.on('child_added', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        const item = document.createElement('div');
+        item.className = 'event-item';
+
+        const avatarUrl = data.avatar || 'https://via.placeholder.com/32?text=?';
+        let icone = '';
+        let detalhe = '';
+
+        if (data.tipo === 'like') {
+          icone = '<span class="type-like">❤️</span>';
+          detalhe = 'curtiu a live';
+        } else if (data.tipo === 'follow') {
+          icone = '<span class="type-follow">👤</span>';
+          detalhe = 'começou a seguir';
+        } else if (data.tipo === 'gift') {
+          icone = '<span class="type-gift">🎁</span>';
+          detalhe = `enviou ${data.presente || 'Presente'} (${data.valor || 1} 💎)`;
+        }
+
+        item.innerHTML = `
+          <img src="${avatarUrl}" class="event-avatar" onerror="this.src='https://via.placeholder.com/32?text=?'">
+          <div class="event-text">
+            <strong>${data.nome || 'Usuário'}</strong> ${detalhe} ${icone}
+          </div>
+        `;
+
+        feed.prepend(item); // Coloca o mais recente no topo
+      });
+    }
+
     async function conectar() {
       const user = document.getElementById('username').value.trim();
       if (!user) return alert('Digite o perfil');
@@ -77,6 +172,7 @@
         if (data.status === 'success') {
           document.getElementById('status-text').className = 'status-online';
           document.getElementById('status-text').innerText = `Conectado em @${data.username}`;
+          iniciarEscutaEventos();
         }
       } catch (err) {
         document.getElementById('status-text').innerText = 'Erro ao conectar';
@@ -91,4 +187,3 @@
   </script>
 </body>
 </html>
-
