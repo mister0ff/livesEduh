@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok Live Mobile</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    h2 { margin-top: 0; color: #ff0050; text-align: center; }
+    label { font-size: 14px; color: #94a3b8; display: block; margin-bottom: 6px; }
+    input[type="text"] {
+      width: 100%; padding: 14px; border-radius: 10px; border: 1px solid #334155;
+      background: #0f172a; color: white; font-size: 16px; margin-bottom: 16px;
+    }
+    .btn-group { display: flex; gap: 10px; margin-bottom: 16px; }
+    button {
+      flex: 1; padding: 14px; border-radius: 10px; border: none;
+      font-weight: bold; font-size: 16px; cursor: pointer;
+    }
+    .btn-connect { background: #ff0050; color: white; }
+    .btn-disconnect { background: #334155; color: #94a3b8; }
+    .status-card {
+      background: #0f172a; padding: 12px; border-radius: 10px;
+      font-size: 14px; text-align: center; border: 1px solid #334155;
+    }
+    .status-online { color: #10b981; font-weight: bold; }
+    .status-offline { color: #ef4444; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🎵 TikTok Live Panel</h2>
+    <label for="username">Digite o @ da Live:</label>
+    <input type="text" id="username" placeholder="ex: eduhh_slk" value="eduhh_slk">
+
+    <div class="btn-group">
+      <button class="btn-connect" onclick="conectar()">Conectar</button>
+      <button class="btn-disconnect" onclick="desconectar()">Desconectar</button>
+    </div>
+
+    <div class="status-card">
+      Status: <span id="status-text" class="status-offline">Desconectado</span>
+    </div>
+  </div>
+
+  <script>
+    async function conectar() {
+      const user = document.getElementById('username').value.trim();
+      if (!user) return alert('Digite o perfil');
+
+      document.getElementById('status-text').className = 'status-offline';
+      document.getElementById('status-text').innerText = 'Conectando...';
+
+      const formData = new FormData();
+      formData.append('username', user);
+
+      try {
+        const res = await fetch('/api/connect', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.status === 'success') {
+          document.getElementById('status-text').className = 'status-online';
+          document.getElementById('status-text').innerText = `Conectado em @${data.username}`;
+        }
+      } catch (err) {
+        document.getElementById('status-text').innerText = 'Erro ao conectar';
+      }
+    }
+
+    async function desconectar() {
+      await fetch('/api/disconnect', { method: 'POST' });
+      document.getElementById('status-text').className = 'status-offline';
+      document.getElementById('status-text').innerText = 'Desconectado';
+    }
+  </script>
+</body>
+</html>
+
