@@ -1,93 +1,64 @@
 import asyncio
 import os
-import traceback
-from collections import deque
-from typing import Optional
-
-from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-
-# Configurações do Sign Server do TikTokLive
-from TikTokLive.client.web.web_settings import WebDefaults
-from TikTokLive.client.errors import UserOfflineError
+import requests
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
 from TikTokLive import TikTokLiveClient
-from TikTokLive.events import (
-    ConnectEvent, DisconnectEvent, FollowEvent, LikeEvent, GiftEvent
-)
+from TikTokLive.events import LikeEvent, FollowEvent, GiftEvent, ConnectEvent
+from TikTokLive.client.web.web_settings import WebDefaults
 
-# ---------------------------------------------------------------
-# Chave de API e Configurações Globais do Sign Server
-# ---------------------------------------------------------------
+app = FastAPI()
+
+# Configuração da API do EulerStream
 API_KEY = "cd948ded95a99c618e759b77b97d3f22a2deddb40d02403b95417acd6bcb099d"
+WEBHOOK_URL = "https://n8n.seusite.com/webhook/tiktok"  # Altere se necessário
 
 WebDefaults.tiktok_sign_url = "https://host.eulerstream.com/web/fetch"
 WebDefaults.tiktok_sign_api_key = API_KEY
 
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Variáveis globais
+current_client = None
+current_task = None
+active_user = None
 
-# ---------------------------------------------------------------
-# Estado global (em memória)
-# ---------------------------------------------------------------
-current_client: Optional[TikTokLiveClient] = None
-current_task: Optional[asyncio.Task] = None
-active_user: str = ""
-
-eventos_feed: deque = deque(maxlen=200)
-evento_id: int = 0
-curtidas_registradas: set = set()
+curtidas_registradas = set()
+eventos_feed = []
+event_counter = 0
 
 
-def extrair_usuario(event):
-    user = getattr(event, "user", None)
-    if not user:
-        return None, None
-    nome = getattr(user, "unique_id", None) or getattr(user, "nickname", None)
-    avatar = None
-    pic = getattr(user, "avatar_thumb", None)
-    if pic is not None:
-        urls = getattr(pic, "m_urls", None) or getattr(pic, "urls", None)
-        if urls:
-            avatar = urls[0]
-    return nome, avatar
+def enviar_webhook(payload: dict):
+    try:
+        requests.post(WEBHOOK_URL, json=payload, timeout=5)
+    except Exception as e:
+        print(f"[WEBHOOK ERRO] {e}")
 
 
-def push_evento(payload: dict):
-    global evento_id
-    evento_id += 1
-    payload["_id"] = evento_id
-    eventos_feed.append(payload)
-    print(f"[EVENTO #{evento_id}] {payload.get('tipo')} - {payload.get('nome')}")
+def registrar_evento(evento_dict: dict):
+    global event_counter
+    event_counter += 1
+    evento_dict["id"] = event_counter
+    eventos_feed.append(evento_dict)
+
+    if len(eventos_feed) > 50:
+        eventos_feed.pop(0)
 
 
-# ---------------------------------------------------------------
-# Rotas
-# ---------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
-async def home():
+async def serve_index():
     if os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h1>Painel TikTok Live Rodando</h1>"
+        return FileResponse("index.html")
+    return HTMLResponse("<h2>Arquivo index.html não encontrado!</h2>", status_code=404)
 
 
 @app.get("/api/events")
-async def get_events(since: int = Query(0)):
-    novos = [ev for ev in eventos_feed if ev.get("_id", 0) > since]
-    last_id = novos[-1]["_id"] if novos else since
-    return {"eventos": novos, "last_id": last_id}
-
-
-@app.get("/api/status")
-async def get_status():
-    conectado = bool(current_client and current_client.connected)
-    return {"conectado": conectado, "user": active_user}
+async def get_events(since: int = 0):
+    novos = [e for e in eventos_feed if e["id"] > since]
+    return {
+        "status": "ok",
+        "username": active_user,
+        "last_id": event_counter,
+        "eventos": novos
+    }
 
 
 @app.post("/api/connect")
@@ -96,9 +67,9 @@ async def connect_live(username: str):
 
     clean = username.replace("@", "").strip()
     if not clean:
-        return {"status": "error", "message": "username vazio"}
+        raise HTTPException(status_code=400, detail="Username inválido")
 
-    # Desconecta o cliente anterior, se existir
+    # Desconecta a live anterior se houver
     if current_client is not None:
         try:
             await current_client.disconnect()
@@ -117,77 +88,81 @@ async def connect_live(username: str):
     eventos_feed.clear()
     active_user = clean
 
-    # Passa a chave explicitamente via web_kwargs
-    client = TikTokLiveClient(
-        unique_id=f"@{clean}",
-        web_kwargs={
-            "sign_api_key": API_KEY
-        }
-    )
+    # Inicializa sem o parâmetro web_kwargs que causava o erro
+    client = TikTokLiveClient(unique_id=f"@{clean}")
     current_client = client
 
     @client.on(ConnectEvent)
     async def on_connect(event: ConnectEvent):
-        print(f"✅ Conectado em @{clean}")
-        push_evento({
+        print(f"[CONECTADO] @{clean}")
+        registrar_evento({
             "tipo": "connect",
-            "nome": "Sistema",
-            "avatar": None,
+            "nome": clean,
+            "avatar": ""
         })
-
-    @client.on(DisconnectEvent)
-    async def on_disconnect(event: DisconnectEvent):
-        print(f"⚠️ Desconectado de @{clean}")
-
-    @client.on(FollowEvent)
-    async def on_follow(event: FollowEvent):
-        nome, avatar = extrair_usuario(event)
-        if nome:
-            push_evento({"tipo": "follow", "nome": nome, "avatar": avatar})
 
     @client.on(LikeEvent)
     async def on_like(event: LikeEvent):
-        nome, avatar = extrair_usuario(event)
-        if nome and nome not in curtidas_registradas:
-            curtidas_registradas.add(nome)
-            push_evento({"tipo": "like", "nome": nome, "avatar": avatar})
+        user_id = getattr(event.user, "unique_id", None) or getattr(event.user, "nickname", "desconhecido")
+        avatar = getattr(event.user.avatar, "urls", [""])[0] if getattr(event.user, "avatar", None) else ""
+
+        if user_id not in curtidas_registradas:
+            curtidas_registradas.add(user_id)
+            payload = {
+                "tipo": "like",
+                "nome": user_id,
+                "avatar": avatar,
+                "live": clean
+            }
+            registrar_evento(payload)
+            enviar_webhook(payload)
+
+    @client.on(FollowEvent)
+    async def on_follow(event: FollowEvent):
+        user_id = getattr(event.user, "unique_id", None) or getattr(event.user, "nickname", "desconhecido")
+        avatar = getattr(event.user.avatar, "urls", [""])[0] if getattr(event.user, "avatar", None) else ""
+
+        payload = {
+            "tipo": "follow",
+            "nome": user_id,
+            "avatar": avatar,
+            "live": clean
+        }
+        registrar_evento(payload)
+        enviar_webhook(payload)
 
     @client.on(GiftEvent)
     async def on_gift(event: GiftEvent):
-        gift = event.gift
-        if getattr(gift, "streakable", False) and getattr(gift, "streaking", False):
+        if event.gift.streakable and event.gift.has_next_streak:
             return
-        nome, avatar = extrair_usuario(event)
-        if not nome:
-            return
-        valor = (getattr(gift, "diamond_count", 0) or 0) * getattr(event, "repeat_count", 1)
-        push_evento({
+
+        user_id = getattr(event.user, "unique_id", None) or getattr(event.user, "nickname", "desconhecido")
+        avatar = getattr(event.user.avatar, "urls", [""])[0] if getattr(event.user, "avatar", None) else ""
+        gift_name = getattr(event.gift, "name", "Presente")
+        gift_repeat = getattr(event.gift, "repeat_count", 1)
+
+        payload = {
             "tipo": "gift",
-            "nome": nome,
+            "nome": user_id,
             "avatar": avatar,
-            "valor": valor,
-            "presente": getattr(gift, "name", "Presente"),
-        })
+            "presente": gift_name,
+            "valor": gift_repeat,
+            "live": clean
+        }
+        registrar_evento(payload)
+        enviar_webhook(payload)
 
     async def runner():
         try:
             await client.start()
-        except UserOfflineError:
-            print(f"⚠️ O usuário @{clean} não está ao vivo.")
-            push_evento({
-                "tipo": "erro",
-                "nome": "Sistema",
-                "avatar": None,
-                "mensagem": f"O usuário @{clean} está offline.",
-            })
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            print("❌ Erro no client TikTok:", e)
-            traceback.print_exc()
-            push_evento({
+            print(f"[ERRO CLIENTE] {e}")
+            registrar_evento({
                 "tipo": "erro",
                 "nome": "Sistema",
-                "avatar": None,
-                "mensagem": str(e),
+                "mensagem": str(e)
             })
 
     current_task = asyncio.create_task(runner())
@@ -212,11 +187,6 @@ async def disconnect_live():
         except Exception:
             pass
 
-    active_user = ""
+    active_user = None
     return {"status": "disconnected"}
 
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
