@@ -1,105 +1,199 @@
 import asyncio
 import os
-from fastapi import FastAPI
+import traceback
+from collections import deque
+from typing import Optional
+
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+
 from TikTokLive import TikTokLiveClient
-from TikTokLive.events import ConnectEvent, FollowEvent, LikeEvent, GiftEvent
-import firebase_admin
-from firebase_admin import db
+from TikTokLive.events import (
+    ConnectEvent, DisconnectEvent, FollowEvent, LikeEvent, GiftEvent
+)
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Inicializa o Firebase Admin SDK
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(options={
-        'databaseURL': 'https://starcord-14470-default-rtdb.firebaseio.com'
-    })
+# ---------------------------------------------------------------
+# Estado global (em memória — sem Firebase)
+# ---------------------------------------------------------------
+current_client: Optional[TikTokLiveClient] = None
+current_task: Optional[asyncio.Task] = None
+active_user: str = ""
 
-current_client = None
-active_user = ""
-curtidas_registradas = set()
+# Fila de eventos (máx 200) + contador de ID
+eventos_feed: deque = deque(maxlen=200)
+evento_id: int = 0
+curtidas_registradas: set = set()
+
 
 def extrair_usuario(event):
-    nome = getattr(event.user, 'unique_id', None) or getattr(event.user, 'nickname', None)
+    """Extrai nome + avatar do evento."""
+    user = getattr(event, "user", None)
+    if not user:
+        return None, None
+    nome = getattr(user, "unique_id", None) or getattr(user, "nickname", None)
     avatar = None
-    if hasattr(event.user, 'avatar_thumb') and hasattr(event.user.avatar_thumb, 'm_urls'):
-        urls = event.user.avatar_thumb.m_urls
+    pic = getattr(user, "avatar_thumb", None)
+    if pic is not None:
+        urls = getattr(pic, "m_urls", None) or getattr(pic, "urls", None)
         if urls:
             avatar = urls[0]
     return nome, avatar
 
+
+def push_evento(payload: dict):
+    """Adiciona evento na fila em memória."""
+    global evento_id
+    evento_id += 1
+    payload["_id"] = evento_id
+    eventos_feed.append(payload)
+    print(f"[EVENTO #{evento_id}] {payload.get('tipo')} - {payload.get('nome')}")
+
+
+# ---------------------------------------------------------------
+# Rotas
+# ---------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def home():
     with open("index.html", "r", encoding="utf-8") as f:
         return f.read()
 
+
+@app.get("/api/events")
+async def get_events(since: int = Query(0)):
+    """Retorna eventos com _id > since."""
+    novos = [ev for ev in eventos_feed if ev.get("_id", 0) > since]
+    last_id = novos[-1]["_id"] if novos else since
+    return {"eventos": novos, "last_id": last_id}
+
+
+@app.get("/api/status")
+async def get_status():
+    conectado = bool(current_client and current_client.connected)
+    return {"conectado": conectado, "user": active_user}
+
+
 @app.post("/api/connect")
 async def connect_live(username: str):
-    global current_client, active_user, curtidas_registradas
-    
-    clean_username = username.replace("@", "").strip()
-    
-    if current_client and current_client.connected:
-        await current_client.disconnect()
-        
+    global current_client, current_task, active_user, curtidas_registradas
+
+    clean = username.replace("@", "").strip()
+    if not clean:
+        return {"status": "error", "message": "username vazio"}
+
+    # Desliga cliente antigo
+    if current_client is not None:
+        try:
+            await current_client.disconnect()
+        except Exception:
+            pass
+        current_client = None
+
+    if current_task and not current_task.done():
+        current_task.cancel()
+        try:
+            await current_task
+        except Exception:
+            pass
+
+    # Reseta estado
     curtidas_registradas.clear()
-    active_user = clean_username
-    
-    # Limpa eventos antigos no banco
-    db.reference('eventos/').delete()
+    eventos_feed.clear()
+    active_user = clean
 
-    current_client = TikTokLiveClient(unique_id=clean_username)
+    client = TikTokLiveClient(unique_id=f"@{clean}")
+    current_client = client
 
-    @current_client.on(ConnectEvent)
+    @client.on(ConnectEvent)
     async def on_connect(event: ConnectEvent):
-        print(f"✅ Conectado na live de @{clean_username}")
+        print(f"✅ Conectado em @{clean}")
+        push_evento({
+            "tipo": "connect",
+            "nome": "Sistema",
+            "avatar": None,
+        })
 
-    @current_client.on(FollowEvent)
+    @client.on(DisconnectEvent)
+    async def on_disconnect(event: DisconnectEvent):
+        print(f"⚠️ Desconectado de @{clean}")
+
+    @client.on(FollowEvent)
     async def on_follow(event: FollowEvent):
         nome, avatar = extrair_usuario(event)
         if nome:
-            db.reference('eventos/').push({
-                'tipo': 'follow',
-                'nome': nome,
-                'avatar': avatar
-            })
+            push_evento({"tipo": "follow", "nome": nome, "avatar": avatar})
 
-    @current_client.on(LikeEvent)
+    @client.on(LikeEvent)
     async def on_like(event: LikeEvent):
         nome, avatar = extrair_usuario(event)
         if nome and nome not in curtidas_registradas:
             curtidas_registradas.add(nome)
-            db.reference('eventos/').push({
-                'tipo': 'like',
-                'nome': nome,
-                'avatar': avatar
-            })
+            push_evento({"tipo": "like", "nome": nome, "avatar": avatar})
 
-    @current_client.on(GiftEvent)
+    @client.on(GiftEvent)
     async def on_gift(event: GiftEvent):
-        if event.gift.streakable and not event.gift.streaking:
+        gift = event.gift
+        # Ignora streak intermediário
+        if getattr(gift, "streakable", False) and getattr(gift, "streaking", False):
             return
         nome, avatar = extrair_usuario(event)
-        if nome:
-            valor = event.gift.diamond_count * event.repeat_count
-            db.reference('eventos/').push({
-                'tipo': 'gift',
-                'nome': nome,
-                'avatar': avatar,
-                'valor': valor,
-                'presente': event.gift.name
+        if not nome:
+            return
+        valor = (getattr(gift, "diamond_count", 0) or 0) * getattr(event, "repeat_count", 1)
+        push_evento({
+            "tipo": "gift",
+            "nome": nome,
+            "avatar": avatar,
+            "valor": valor,
+            "presente": getattr(gift, "name", "Presente"),
+        })
+
+    async def runner():
+        try:
+            await client.start()
+        except Exception as e:
+            print("❌ Erro no client TikTok:", e)
+            traceback.print_exc()
+            push_evento({
+                "tipo": "erro",
+                "nome": "Sistema",
+                "avatar": None,
+                "mensagem": str(e),
             })
 
-    asyncio.create_task(current_client.start())
-    return {"status": "success", "username": clean_username}
+    current_task = asyncio.create_task(runner())
+    return {"status": "success", "username": clean}
+
 
 @app.post("/api/disconnect")
 async def disconnect_live():
-    global current_client, active_user
-    if current_client and current_client.connected:
-        await current_client.disconnect()
+    global current_client, current_task, active_user
+
+    if current_client is not None:
+        try:
+            await current_client.disconnect()
+        except Exception:
+            pass
+        current_client = None
+
+    if current_task and not current_task.done():
+        current_task.cancel()
+        try:
+            await current_task
+        except Exception:
+            pass
+
     active_user = ""
     return {"status": "disconnected"}
+
 
 if __name__ == "__main__":
     import uvicorn
