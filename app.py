@@ -8,6 +8,12 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
+# 👇 IMPORTA O CONFIGURADOR DO SIGN SERVER
+from TikTokLive.client.web.web_settings import WebDefaults
+
+# 👇 CONFIGURA SUA API KEY (antes de qualquer TikTokLiveClient)
+WebDefaults.tiktok_sign_api_key = "6be8e64053613eb3178e840c53847fb33d4b29ece3ee5095448eb6e57964ab7d"
+
 from TikTokLive import TikTokLiveClient
 from TikTokLive.events import (
     ConnectEvent, DisconnectEvent, FollowEvent, LikeEvent, GiftEvent
@@ -28,14 +34,12 @@ current_client: Optional[TikTokLiveClient] = None
 current_task: Optional[asyncio.Task] = None
 active_user: str = ""
 
-# Fila de eventos (máx 200) + contador de ID
 eventos_feed: deque = deque(maxlen=200)
 evento_id: int = 0
 curtidas_registradas: set = set()
 
 
 def extrair_usuario(event):
-    """Extrai nome + avatar do evento."""
     user = getattr(event, "user", None)
     if not user:
         return None, None
@@ -50,7 +54,6 @@ def extrair_usuario(event):
 
 
 def push_evento(payload: dict):
-    """Adiciona evento na fila em memória."""
     global evento_id
     evento_id += 1
     payload["_id"] = evento_id
@@ -69,7 +72,6 @@ async def home():
 
 @app.get("/api/events")
 async def get_events(since: int = Query(0)):
-    """Retorna eventos com _id > since."""
     novos = [ev for ev in eventos_feed if ev.get("_id", 0) > since]
     last_id = novos[-1]["_id"] if novos else since
     return {"eventos": novos, "last_id": last_id}
@@ -89,7 +91,6 @@ async def connect_live(username: str):
     if not clean:
         return {"status": "error", "message": "username vazio"}
 
-    # Desliga cliente antigo
     if current_client is not None:
         try:
             await current_client.disconnect()
@@ -104,7 +105,6 @@ async def connect_live(username: str):
         except Exception:
             pass
 
-    # Reseta estado
     curtidas_registradas.clear()
     eventos_feed.clear()
     active_user = clean
@@ -141,7 +141,6 @@ async def connect_live(username: str):
     @client.on(GiftEvent)
     async def on_gift(event: GiftEvent):
         gift = event.gift
-        # Ignora streak intermediário
         if getattr(gift, "streakable", False) and getattr(gift, "streaking", False):
             return
         nome, avatar = extrair_usuario(event)
