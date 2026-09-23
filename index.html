@@ -44,7 +44,6 @@
     .status-online { color: #10b981; font-weight: bold; }
     .status-offline { color: #ef4444; font-weight: bold; }
 
-    /* Estilos do Feed de Eventos */
     .feed-title { font-size: 14px; color: #94a3b8; margin-bottom: 8px; }
     .events-feed {
       background: #0f172a;
@@ -79,7 +78,6 @@
     .type-gift { color: #eab308; font-weight: bold; }
   </style>
 
-  <!-- SDK do Firebase para escutar em tempo real no navegador -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 </head>
@@ -107,20 +105,16 @@
   </div>
 
   <script>
-    // Inicialização do Firebase no Navegador
     const firebaseConfig = {
       databaseURL: "https://starcord-14470-default-rtdb.firebaseio.com"
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    let eventListener = null;
-
     function iniciarEscutaEventos() {
       const feed = document.getElementById('events-feed');
-      feed.innerHTML = ''; // Limpa aviso inicial
+      feed.innerHTML = '';
 
-      // Escuta apenas os novos itens adicionados
       const eventosRef = db.ref('eventos').limitToLast(20);
       
       eventosRef.on('child_added', (snapshot) => {
@@ -152,7 +146,7 @@
           </div>
         `;
 
-        feed.prepend(item); // Coloca o mais recente no topo
+        feed.prepend(item);
       });
     }
 
@@ -163,19 +157,22 @@
       document.getElementById('status-text').className = 'status-offline';
       document.getElementById('status-text').innerText = 'Conectando...';
 
-      const formData = new FormData();
-      formData.append('username', user);
-
       try {
-        const res = await fetch('/api/connect', { method: 'POST', body: formData });
+        const res = await fetch(`/api/connect?username=${encodeURIComponent(user)}`, { 
+          method: 'POST' 
+        });
+        
         const data = await res.json();
         if (data.status === 'success') {
           document.getElementById('status-text').className = 'status-online';
           document.getElementById('status-text').innerText = `Conectado em @${data.username}`;
           iniciarEscutaEventos();
+        } else {
+          document.getElementById('status-text').innerText = 'Erro ao conectar';
         }
       } catch (err) {
-        document.getElementById('status-text').innerText = 'Erro ao conectar';
+        console.error(err);
+        document.getElementById('status-text').innerText = 'Erro de rede/servidor';
       }
     }
 
