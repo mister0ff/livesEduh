@@ -8,16 +8,21 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-# 👇 IMPORTA O CONFIGURADOR DO SIGN SERVER
+# Configurações do Sign Server do TikTokLive
 from TikTokLive.client.web.web_settings import WebDefaults
-
-# 👇 CONFIGURA SUA API KEY (antes de qualquer TikTokLiveClient)
-WebDefaults.tiktok_sign_api_key = "cd948ded95a99c618e759b77b97d3f22a2deddb40d02403b95417acd6bcb099d"
-
+from TikTokLive.client.errors import UserOfflineError
 from TikTokLive import TikTokLiveClient
 from TikTokLive.events import (
     ConnectEvent, DisconnectEvent, FollowEvent, LikeEvent, GiftEvent
 )
+
+# ---------------------------------------------------------------
+# Chave de API e Configurações Globais do Sign Server
+# ---------------------------------------------------------------
+API_KEY = "cd948ded95a99c618e759b77b97d3f22a2deddb40d02403b95417acd6bcb099d"
+
+WebDefaults.tiktok_sign_url = "https://host.eulerstream.com/web/fetch"
+WebDefaults.tiktok_sign_api_key = API_KEY
 
 app = FastAPI()
 app.add_middleware(
@@ -28,7 +33,7 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------
-# Estado global (em memória — sem Firebase)
+# Estado global (em memória)
 # ---------------------------------------------------------------
 current_client: Optional[TikTokLiveClient] = None
 current_task: Optional[asyncio.Task] = None
@@ -66,8 +71,10 @@ def push_evento(payload: dict):
 # ---------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    if os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Painel TikTok Live Rodando</h1>"
 
 
 @app.get("/api/events")
@@ -91,6 +98,7 @@ async def connect_live(username: str):
     if not clean:
         return {"status": "error", "message": "username vazio"}
 
+    # Desconecta o cliente anterior, se existir
     if current_client is not None:
         try:
             await current_client.disconnect()
@@ -109,7 +117,13 @@ async def connect_live(username: str):
     eventos_feed.clear()
     active_user = clean
 
-    client = TikTokLiveClient(unique_id=f"@{clean}")
+    # Passa a chave explicitamente via web_kwargs
+    client = TikTokLiveClient(
+        unique_id=f"@{clean}",
+        web_kwargs={
+            "sign_api_key": API_KEY
+        }
+    )
     current_client = client
 
     @client.on(ConnectEvent)
@@ -158,6 +172,14 @@ async def connect_live(username: str):
     async def runner():
         try:
             await client.start()
+        except UserOfflineError:
+            print(f"⚠️ O usuário @{clean} não está ao vivo.")
+            push_evento({
+                "tipo": "erro",
+                "nome": "Sistema",
+                "avatar": None,
+                "mensagem": f"O usuário @{clean} está offline.",
+            })
         except Exception as e:
             print("❌ Erro no client TikTok:", e)
             traceback.print_exc()
