@@ -16,7 +16,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-const tiktokUsername = "eduhh_slk";
+const tiktokUsername = "sunshinekkj_";
 const connection = new TikTokLiveConnection(tiktokUsername, {});
 
 const curtidasRegistradas = new Set();
