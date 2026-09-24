@@ -78,6 +78,29 @@ connection.on(WebcastEvent.GIFT, data => {
     });
 });
 
+// NOVO: Captura o chat e pega apenas a primeira letra
+connection.on(WebcastEvent.CHAT, data => {
+    const { nome, avatar } = extrairUsuario(data);
+    if (!nome) { 
+        console.log('⚠️ CHAT sem nome identificado, dados brutos:', JSON.stringify(data)); 
+        return; 
+    }
+
+    const textoCompleto = data.comment || '';
+    const primeiraLetra = textoCompleto.trim().charAt(0); // Pega o primeiro caractere ignorando espaços extras
+
+    if (!primeiraLetra) return; // Se o comentário estiver vazio, ignora
+
+    console.log(`💬 ${nome} comentou ${primeiraLetra}`);
+
+    db.ref('eventos/').push({
+        tipo: 'chat',
+        nome,
+        avatar: avatar || null,
+        comentario: primeiraLetra // Salva apenas a primeira letra no Firebase
+    });
+});
+
 connection.on(WebcastEvent.DISCONNECTED, () => {
     console.log('⚠️ Desconectado da live.');
 });
