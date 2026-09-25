@@ -2,15 +2,16 @@ const { TikTokLiveConnection, WebcastEvent } = require('tiktok-live-connector');
 const firebase = require('firebase/compat/app');
 require('firebase/compat/database');
 
+// Configuração corrigida para apontar para o projeto "jogos-468c5"
 const firebaseConfig = {
-  apiKey: "AIzaSyDuKdQkPzGagnCIKUE5Yz_mKtpPw3OCf7c",
-  authDomain: "starcord-14470.firebaseapp.com",
-  databaseURL: "https://starcord-14470-default-rtdb.firebaseio.com",
-  projectId: "starcord-14470",
-  storageBucket: "starcord-14470.firebasestorage.app",
-  messagingSenderId: "154662528498",
-  appId: "1:154662528498:web:ff9815bb21dc2b4172776b",
-  measurementId: "G-QR4Y9ZHMF0"
+  apiKey: "AIzaSyD7e_jzxdwysOWzZ8RgUDYZsH2Wd6U9Tv8",
+  authDomain: "jogos-468c5.firebaseapp.com",
+  databaseURL: "https://jogos-468c5-default-rtdb.firebaseio.com",
+  projectId: "jogos-468c5",
+  storageBucket: "jogos-468c5.firebasestorage.app",
+  messagingSenderId: "707655679439",
+  appId: "1:707655679439:web:4090d4f9f453e8769d66ba",
+  measurementId: "G-02Q9MZ50DX"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -46,19 +47,16 @@ connection.connect().then(state => {
 
 connection.on(WebcastEvent.FOLLOW, data => {
     const { nome, avatar } = extrairUsuario(data);
-    if (!nome) { console.log('⚠️ FOLLOW sem nome identificado, dados brutos:', JSON.stringify(data)); return; }
+    if (!nome) { console.log('⚠️ FOLLOW sem nome identificado'); return; }
     console.log(`👤 Novo seguidor: ${nome}`);
     db.ref('eventos/').push({ tipo: 'follow', nome, avatar: avatar || null });
 });
 
 connection.on(WebcastEvent.LIKE, data => {
     const { nome, avatar } = extrairUsuario(data);
-    console.log(`❤️ ${nome || '(sem nome)'} curtiu a live (+${data.likeCount || 1}, total: ${data.totalLikeCount || '?'})`);
+    console.log(`❤️ ${nome || '(sem nome)'} curtiu a live`);
 
-    if (!nome) {
-        console.log('⚠️ LIKE sem nome identificado, dados brutos:', JSON.stringify(data));
-        return;
-    }
+    if (!nome) return;
     if (!curtidasRegistradas.has(nome)) {
         curtidasRegistradas.add(nome);
         db.ref('eventos/').push({ tipo: 'like', nome, avatar: avatar || null });
@@ -68,28 +66,24 @@ connection.on(WebcastEvent.LIKE, data => {
 connection.on(WebcastEvent.GIFT, data => {
     if (data.giftType === 1 && !data.repeatEnd) return;
     const { nome, avatar } = extrairUsuario(data);
-    if (!nome) { console.log('⚠️ GIFT sem nome identificado, dados brutos:', JSON.stringify(data)); return; }
+    if (!nome) return;
 
     const valor = (data.diamondCount || 1) * (data.repeatCount || 1);
-    console.log(`🎁 ${nome} enviou ${data.giftName || 'presente'} x${data.repeatCount || 1} (${valor} diamantes)`);
+    console.log(`🎁 ${nome} enviou presente (${valor} diamantes)`);
 
     db.ref('eventos/').push({
         tipo: 'gift', nome, avatar: avatar || null, valor, presente: data.giftName || null
     });
 });
 
-// NOVO: Captura o chat e pega apenas a primeira letra
 connection.on(WebcastEvent.CHAT, data => {
     const { nome, avatar } = extrairUsuario(data);
-    if (!nome) { 
-        console.log('⚠️ CHAT sem nome identificado, dados brutos:', JSON.stringify(data)); 
-        return; 
-    }
+    if (!nome) return;
 
     const textoCompleto = data.comment || '';
-    const primeiraLetra = textoCompleto.trim().charAt(0); // Pega o primeiro caractere ignorando espaços extras
+    const primeiraLetra = textoCompleto.trim().charAt(0);
 
-    if (!primeiraLetra) return; // Se o comentário estiver vazio, ignora
+    if (!primeiraLetra) return;
 
     console.log(`💬 ${nome} comentou ${primeiraLetra}`);
 
@@ -97,7 +91,7 @@ connection.on(WebcastEvent.CHAT, data => {
         tipo: 'chat',
         nome,
         avatar: avatar || null,
-        comentario: primeiraLetra // Salva apenas a primeira letra no Firebase
+        comentario: primeiraLetra
     });
 });
 
